@@ -60,7 +60,7 @@ jobs:
           echo "=== Keystore aliases ==="
           keytool -list -keystore "$KEYSTORE_PATH" -storepass "$KEYSTORE_PASSWORD"
 
-      - name: Show signing certificate fingerprints
+      - name: Extract SHA1
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         env:
           KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
@@ -69,12 +69,18 @@ jobs:
           KEYSTORE_PATH="$GITHUB_WORKSPACE/android/my-release-key.keystore"
           full_output=$(keytool -list -v -keystore "$KEYSTORE_PATH" -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD")
           sha1_with_colons=$(echo "$full_output" | grep -i "sha1:" | head -1 | sed 's/.*sha1:\s*//i' | sed 's/\s*$//')
-          sha256_with_colons=$(echo "$full_output" | grep -i "sha256:" | head -1 | sed 's/.*sha256:\s*//i' | sed 's/\s*$//')
-          echo "===== Certificate fingerprints ====="
-          echo "SHA1:   $sha1_with_colons"
-          echo "SHA256: $sha256_with_colons"
-          echo "SHA1 (without colons, for app stores):"
-          echo "$sha1_with_colons" | tr -d ':'
+          sha1_plain=$(echo "$sha1_with_colons" | tr -d ':')
+          echo "===== SHA1 (for Xiaomi / App Store) ====="
+          echo "SHA1:            $sha1_with_colons"
+          echo "SHA1 (no colons): $sha1_plain"
+          {
+            echo "## APK 签名 SHA1"
+            echo ""
+            echo "| 格式 | 值 |"
+            echo "| --- | --- |"
+            echo "| 带冒号 | \`$sha1_with_colons\` |"
+            echo "| 无冒号 | \`$sha1_plain\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build release APK
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
