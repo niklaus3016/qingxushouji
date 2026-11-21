@@ -1,0 +1,113 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-android:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+          cache: 'gradle'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Sync web resources to Android
+        run: npx cap sync android
+
+      - name: Make gradlew executable
+        run: chmod +x ./android/gradlew
+
+      # Fork PRs cannot read repository secrets, so signing steps are skipped there.
+      - name: Restore release keystore
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE_BASE64" ] || [ -z "$KEYSTORE_PASSWORD" ] || [ -z "$KEY_ALIAS" ] || [ -z "$KEY_PASSWORD" ]; then
+            echo "Error: one or more keystore secrets are missing (KEYSTORE_BASE64 / KEYSTORE_PASSWORD / KEY_ALIAS / KEY_PASSWORD)"
+            exit 1
+          fi
+          KEYSTORE_PATH="$GITHUB_WORKSPACE/android/my-release-key.keystore"
+          echo "$KEYSTORE_BASE64" | base64 -d > "$KEYSTORE_PATH"
+          echo "=== Keystore aliases ==="
+          keytool -list -keystore "$KEYSTORE_PATH" -storepass "$KEYSTORE_PASSWORD"
+
+      - name: Show signing certificate fingerprints
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          KEYSTORE_PATH="$GITHUB_WORKSPACE/android/my-release-key.keystore"
+          full_output=$(keytool -list -v -keystore "$KEYSTORE_PATH" -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD")
+          sha1_with_colons=$(echo "$full_output" | grep -i "sha1:" | head -1 | sed 's/.*sha1:\s*//i' | sed 's/\s*$//')
+          sha256_with_colons=$(echo "$full_output" | grep -i "sha256:" | head -1 | sed 's/.*sha256:\s*//i' | sed 's/\s*$//')
+          echo "===== Certificate fingerprints ====="
+          echo "SHA1:   $sha1_with_colons"
+          echo "SHA256: $sha256_with_colons"
+          echo "SHA1 (without colons, for app stores):"
+          echo "$sha1_with_colons" | tr -d ':'
+
+      - name: Build release APK
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          cd android
+          ./gradlew assembleRelease --no-daemon
+          ls -la app/build/outputs/apk/release/
+
+      - name: Build debug APK
+        run: |
+          cd android
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: qingxushouji-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload release APK
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/upload-artifact@v4
+        with:
+          name: qingxushouji-release-apk
+          path: android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 30
