@@ -1,0 +1,6 @@
+{
+  "name": "情序手记",
+  "description": "轻量安静的本地离线情绪手记工具，支持快速情绪记录、日历回溯、本地情绪复盘统计与浅色/深色主题。",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
