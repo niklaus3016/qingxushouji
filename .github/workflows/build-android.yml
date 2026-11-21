@@ -82,6 +82,25 @@ jobs:
             echo "| 无冒号 | \`$sha1_plain\` |"
           } >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Extract SHA256
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+        run: |
+          KEYSTORE_PATH="$GITHUB_WORKSPACE/android/my-release-key.keystore"
+          full_output=$(keytool -list -v -keystore "$KEYSTORE_PATH" -alias "$KEY_ALIAS" -storepass "$KEYSTORE_PASSWORD")
+          sha256_with_colons=$(echo "$full_output" | grep -i "sha256:" | head -1 | sed 's/.*sha256:\s*//i' | sed 's/\s*$//')
+          echo "===== SHA256 ====="
+          echo "SHA256: $sha256_with_colons"
+          {
+            echo "## APK 签名 SHA256"
+            echo ""
+            echo "| 格式 | 值 |"
+            echo "| --- | --- |"
+            echo "| 带冒号 | \`$sha256_with_colons\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - name: Build release APK
         if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
         env:
